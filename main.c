@@ -7,11 +7,47 @@
 #define WINDOW_HEIGHT 720
 #define TARGET_FPS 60
 #define CELL_SIZE 20
-#define GRID_WIDTH (WINDOW_HEIGHT / CELL_SIZE)
-#define GRID_HEIGHT (WINDOW_HEIGHT / CELL_SIZE)
+#define MAX_GRID_SIZE 1500
+
+typedef struct {
+    int width;
+    int height;
+    int** cells;
+} Grid;
+
+Grid createGrid(int width, int height) {
+    Grid grid = {width, height, (int**)malloc(height * sizeof(int*))};
+    for (int i = 0; i < height; i++) {
+        grid.cells[i] = (int*)calloc(width, sizeof(int));
+    }
+
+    return grid;
+}
+
+void freeGrid(Grid* grid) {
+    for (int i = 0; i < grid->height; i++) {
+        free(grid->cells[i]);
+    }
+
+    free(grid->cells);
+}
+
+void clearGrid(Grid* grid) {
+    for (int i = 0; i < grid->height; i++) {
+        memset(grid->cells[i], 0, grid->width * sizeof(int));
+    }
+}
+
+void resizeGrid(Grid* grid, Grid* newGrid, int newWidth, int newHeight) {
+    for (int y = 0; y < grid->height && y < newHeight; y++) {
+        for (int x = 0; x < grid->width && x < newWidth; x++) {
+            newGrid->cells[y][x] = grid->cells[y][x];
+        }
+    }
+}
 
 // Find how many neighbors are alive
-int countNeighbors(int grid[GRID_HEIGHT][GRID_WIDTH], int row, int col) {
+int countNeighbors(Grid grid, int row, int col) {
     int alive = 0;
     for (int i = -1; i <= 1; i++) {
         for (int j = -1; j <= 1; j++) {
@@ -20,9 +56,9 @@ int countNeighbors(int grid[GRID_HEIGHT][GRID_WIDTH], int row, int col) {
             int newRow = row + i;
             int newCol = col + j;
 
-            if (newRow >= 0 && newRow < GRID_HEIGHT &&
-                newCol >= 0 && newCol < GRID_WIDTH) {
-                    alive += grid[newRow][newCol];
+            if (newRow >= 0 && newRow < grid.height &&
+                newCol >= 0 && newCol < grid.width) {
+                    alive += grid.cells[newRow][newCol];
                 }
         }
     }
@@ -31,15 +67,15 @@ int countNeighbors(int grid[GRID_HEIGHT][GRID_WIDTH], int row, int col) {
 }
 
 // Calculate the next generation of cells
-void updateGrid(int grid[GRID_HEIGHT][GRID_WIDTH], int newGrid[GRID_HEIGHT][GRID_WIDTH]) {
-    for (int row = 0; row < GRID_HEIGHT; row++) {
-        for (int col = 0; col < GRID_WIDTH; col++) {
+void updateGrid(Grid grid, Grid* newGrid) {
+    for (int row = 0; row < grid.height; row++) {
+        for (int col = 0; col < grid.width; col++) {
             int neighbors = countNeighbors(grid, row, col);
 
-            if (grid[row][col]) {
-                newGrid[row][col] = (neighbors == 2 || neighbors == 3);
+            if (grid.cells[row][col]) {
+                newGrid->cells[row][col] = (neighbors == 2 || neighbors == 3);
             } else {
-                newGrid[row][col] = (neighbors == 3);
+                newGrid->cells[row][col] = (neighbors == 3);
             }
         }
     }
@@ -61,11 +97,15 @@ int main(void) {
     SetTargetFPS(TARGET_FPS);
 
     // Initiate grid
-    int grid[GRID_HEIGHT][GRID_WIDTH] = {0};
-    int newGrid[GRID_HEIGHT][GRID_WIDTH] = {0};
+    int initialWidth = (GetScreenWidth() / CELL_SIZE) * 2;
+    int initialHeight = (GetScreenHeight() / CELL_SIZE) * 2; 
+
+    // One grid for current, one for next gen/zoom
+    Grid grid = createGrid(initialWidth, initialHeight);
+    Grid newGrid = createGrid(initialWidth, initialHeight);
 
     Camera2D camera = {
-        .offset = (Vector2){WINDOW_WIDTH / 2, WINDOW_HEIGHT / 2},
+        .offset = (Vector2){GetScreenWidth() / 2, GetScreenHeight() / 2},
         .target = (Vector2){0, 0},
         .rotation = 0.0f,
         .zoom = 1.0f
@@ -77,11 +117,19 @@ int main(void) {
     float updateInterval = 0.1f;
     bool isDragging = false;
 
+    // Track visible area
+    Rectangle viewRect = {0};
+
     while (!WindowShouldClose()) {
         /* INPUT */
         // Pause
         if (IsKeyPressed(KEY_SPACE)) {
             paused = !paused;
+        }
+
+        // Clear
+        if (IsKeyPressed(KEY_C)) {
+            clearGrid(&grid);
         }
 
         // Camera Panning
@@ -112,45 +160,88 @@ int main(void) {
             camera.target.y += (mouseWorldPos.y - newMouseWorldPos.y);
         }
 
+        // Calculate visible area
+        Vector2 topLeft = GetScreenToWorld2D((Vector2){0, 0}, camera);
+        Vector2 bottomRight = GetScreenToWorld2D((Vector2){GetScreenWidth(), GetScreenHeight()}, camera);
+        viewRect = (Rectangle) {topLeft.x, topLeft.y, bottomRight.x - topLeft.x, bottomRight.y - topLeft.y};
+
+        // Check to see if resize is needed
+        int resizeWidth = (int)((fabs(viewRect.width) / CELL_SIZE) * 1.5f);
+        int resizeHeight = (int)((fabs(viewRect.height) / CELL_SIZE) * 1.5f);
+
+        if (resizeWidth > grid.width || resizeHeight > grid.height) {
+            int newWidth = (resizeWidth > grid.width) ? resizeWidth : grid.width;
+            int newHeight = (resizeHeight > grid.height) ? resizeHeight : grid.height;
+
+            // Limit grid size because this is C and idk what can happen
+            newWidth = (newWidth > MAX_GRID_SIZE) ? MAX_GRID_SIZE : newWidth;
+            newHeight = (newHeight > MAX_GRID_SIZE) ? MAX_GRID_SIZE : newHeight;
+
+            Grid tempGrid = createGrid(newWidth, newHeight);
+            resizeGrid(&grid, &tempGrid, newWidth, newHeight);
+            freeGrid(&grid);
+            grid = tempGrid;
+
+            tempGrid = createGrid(newWidth, newHeight);
+            freeGrid(&newGrid);
+            newGrid = tempGrid;
+        }
+
         // Mouse Left and Right Click to Toggle Cells
         if (IsMouseButtonDown(MOUSE_LEFT_BUTTON) || IsMouseButtonDown(MOUSE_RIGHT_BUTTON)) {
             Vector2 gridPos = getGridPosition(GetMousePosition(), camera);
             int gridX = (int)gridPos.x;
             int gridY = (int)gridPos.y;
 
-            if (gridX >= 0 && gridX < GRID_WIDTH &&
-                gridY >= 0 && gridY < GRID_HEIGHT) {
-                    grid[gridY][gridX] = IsMouseButtonDown(MOUSE_LEFT_BUTTON) ? 1 : 0;
+            if (gridX >= 0 && gridX < grid.width &&
+                gridY >= 0 && gridY < grid.height) {
+                    grid.cells[gridY][gridX] = IsMouseButtonDown(MOUSE_LEFT_BUTTON) ? 1 : 0;
             }
         }
 
-        // UPDATING
+        /* UPDATING */
         if (!paused) {
             updateTime += GetFrameTime();
             
             if (updateTime >= updateInterval) {
-                updateGrid(grid, newGrid);
-                memcpy(grid, newGrid, sizeof(grid));
+                updateGrid(grid, &newGrid);
+
+                Grid temp = grid;
+                grid = newGrid;
+                newGrid = temp;
+                
                 updateTime = 0.0f;
             }
         }
 
-        // DRAWING
+        /* DRAWING */
         BeginDrawing();
         ClearBackground(RAYWHITE);
         BeginMode2D(camera);
 
+        // Only draw visible cells and grid lines +- 1
+        int startX = (int)(topLeft.x / CELL_SIZE) - 1;
+        int startY = (int)(topLeft.y / CELL_SIZE) - 1;
+        int endX = (int)(bottomRight.x / CELL_SIZE) + 1;
+        int endY = (int)(bottomRight.y / CELL_SIZE) + 1;
+
+        // Clamp to grid bounds
+        startX = (startX < 0) ? 0 : startX;
+        startY = (startY < 0) ? 0 : startY;
+        endX = (endX > grid.width) ? grid.width : endX;
+        endY = (endY > grid.height) ? grid.height : endY;
+
         // Draw Grid
-        for (int row = 0; row < GRID_HEIGHT; row++) {
-            for (int col = 0; col < GRID_WIDTH; col++) {
+        for (int row = startY; row < endY; row++) {
+            for (int col = startX; col < endX; col++) {
                 Rectangle cellRect = {col * CELL_SIZE, row * CELL_SIZE, CELL_SIZE, CELL_SIZE};
 
                 // Empty cell
                 DrawRectangleLines(cellRect.x, cellRect.y, cellRect.width, cellRect.height, LIGHTGRAY);
 
                 // Alive cell
-                if (grid[row][col]) {
-                    DrawRectangle(cellRect.x, cellRect.y, cellRect.width, cellRect.height, BLACK);
+                if (grid.cells[row][col]) {
+                    DrawRectangleRec(cellRect, BLACK);
                 }
             }
         }
@@ -164,6 +255,7 @@ int main(void) {
         DrawText("Left Click - Fill Cell", 10, 100, 15, DARKGRAY);
         DrawText("Right Click - Delete Cell", 10, 130, 15, DARKGRAY);
         DrawText("Space - Pause/Unpause", 10, 160, 15, DARKGRAY);
+        DrawText("C - Clear", 10, 160, 15, DARKGRAY);
 
         EndDrawing();
     }

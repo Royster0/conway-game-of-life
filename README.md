@@ -8,7 +8,7 @@ The Game of Life is a cellular automation created by John Conway. It simulates t
 4. Any dead cell with three neighbors becomes a live cell (as if by reproduction).
 
 ## How to use
-WIP
+GitHub Pages Deployment on the right. I recommend fullscreen.
 
 ## Thanks to
 This program was written in C using the RayLib library. Compiled to web using Emscripten.
