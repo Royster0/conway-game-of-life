@@ -255,7 +255,7 @@ int main(void) {
         DrawText("Left Click - Fill Cell", 10, 100, 15, DARKGRAY);
         DrawText("Right Click - Delete Cell", 10, 130, 15, DARKGRAY);
         DrawText("Space - Pause/Unpause", 10, 160, 15, DARKGRAY);
-        DrawText("C - Clear", 10, 160, 15, DARKGRAY);
+        DrawText("C - Clear", 10, 190, 15, DARKGRAY);
 
         EndDrawing();
     }
