@@ -11,5 +11,6 @@ The Game of Life is a cellular automation created by John Conway. It simulates t
 WIP
 
 ## Thanks to
-This program was written in C using the RayLib library.
+This program was written in C using the RayLib library. Compiled to web using Emscripten.
  - [RayLib](https://github.com/raysan5/raylib)
+ - [Emscripten](https://github.com/emscripten-core/emscripten)
